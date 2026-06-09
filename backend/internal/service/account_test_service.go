@@ -969,11 +969,6 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 
 // buildGeminiAPIKeyRequest builds request for Gemini API Key accounts
 func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, account *Account, modelID string, payload []byte) (*http.Request, error) {
-	apiKey := account.GetCredential("api_key")
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, fmt.Errorf("no API key available")
-	}
-
 	baseURL := account.GetCredential("base_url")
 	if baseURL == "" {
 		baseURL = geminicli.AIStudioBaseURL
@@ -983,17 +978,16 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 		return nil, err
 	}
 
-	// Use streamGenerateContent for real-time feedback
-	fullURL := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse",
-		strings.TrimRight(normalizedBaseURL, "/"), modelID)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewReader(payload))
+	req, _, err := buildGeminiAPIKeyUpstreamRequest(ctx, account, normalizedBaseURL, geminiAPIKeyUpstreamRequestOptions{
+		Model:    modelID,
+		Action:   "streamGenerateContent",
+		Stream:   true,
+		Body:     payload,
+		BodyMode: geminiAPIKeyBodyNative,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", apiKey)
 
 	return req, nil
 }

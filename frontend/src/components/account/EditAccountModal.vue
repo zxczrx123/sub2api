@@ -28,21 +28,21 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <div v-if="account.platform === 'gemini'">
+          <label class="input-label">{{ t('admin.accounts.gemini.upstreamProfile.label') }}</label>
+          <select v-model="geminiUpstreamProfile" class="input">
+            <option value="google_aistudio">{{ t('admin.accounts.gemini.upstreamProfile.googleAIStudio') }}</option>
+            <option value="qiniu_vertex_bypass">{{ t('admin.accounts.gemini.upstreamProfile.qiniuVertexBypass') }}</option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.gemini.upstreamProfile.hint') }}</p>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : 'https://api.anthropic.com'
-            "
+            :placeholder="apiKeyBaseUrlPlaceholder"
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
@@ -56,15 +56,7 @@
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'antigravity'
-                    ? 'sk-...'
-                    : 'sk-ant-...'
-            "
+            :placeholder="apiKeyPlaceholder"
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
@@ -2440,8 +2432,38 @@ const authStore = useAuthStore()
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === 'gemini' && geminiUpstreamProfile.value === 'qiniu_vertex_bypass') {
+    return t('admin.accounts.gemini.upstreamProfile.qiniuBaseUrlHint')
+  }
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
+})
+
+type GeminiUpstreamProfile = 'google_aistudio' | 'qiniu_vertex_bypass'
+
+const googleAIStudioBaseUrl = 'https://generativelanguage.googleapis.com'
+const qiniuVertexBypassBaseUrl = 'https://api.qnaigc.com/bypass/vertex'
+
+const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (!props.account) return 'https://api.anthropic.com'
+  if (props.account.platform === 'openai') return 'https://api.openai.com'
+  if (props.account.platform === 'gemini') {
+    return geminiUpstreamProfile.value === 'qiniu_vertex_bypass'
+      ? qiniuVertexBypassBaseUrl
+      : googleAIStudioBaseUrl
+  }
+  if (props.account.platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
+  return 'https://api.anthropic.com'
+})
+
+const apiKeyPlaceholder = computed(() => {
+  if (!props.account) return 'sk-ant-...'
+  if (props.account.platform === 'openai') return 'sk-proj-...'
+  if (props.account.platform === 'gemini') {
+    return geminiUpstreamProfile.value === 'qiniu_vertex_bypass' ? 'qiniu-api-key' : 'AIza...'
+  }
+  if (props.account.platform === 'antigravity') return 'sk-...'
+  return 'sk-ant-...'
 })
 
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
@@ -2464,6 +2486,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const geminiUpstreamProfile = ref<GeminiUpstreamProfile>('google_aistudio')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2841,7 +2864,11 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
-  if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'gemini') {
+    return geminiUpstreamProfile.value === 'qiniu_vertex_bypass'
+      ? qiniuVertexBypassBaseUrl
+      : googleAIStudioBaseUrl
+  }
   return 'https://api.anthropic.com'
 })
 
@@ -3099,6 +3126,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+    if (newAccount.platform === 'gemini') {
+      geminiUpstreamProfile.value =
+        credentials.gemini_upstream_profile === 'qiniu_vertex_bypass'
+          ? 'qiniu_vertex_bypass'
+          : 'google_aistudio'
+    } else {
+      geminiUpstreamProfile.value = 'google_aistudio'
+    }
 
     // Load model mappings and detect mode
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
@@ -3208,6 +3243,24 @@ watch(
   },
   { immediate: true }
 )
+
+watch(geminiUpstreamProfile, (profile, previousProfile) => {
+  if (props.account?.platform !== 'gemini' || props.account.type !== 'apikey') return
+  if (
+    profile === 'qiniu_vertex_bypass' &&
+    (!editBaseUrl.value.trim() || editBaseUrl.value.trim() === googleAIStudioBaseUrl)
+  ) {
+    editBaseUrl.value = qiniuVertexBypassBaseUrl
+    return
+  }
+  if (
+    profile === 'google_aistudio' &&
+    previousProfile === 'qiniu_vertex_bypass' &&
+    editBaseUrl.value.trim() === qiniuVertexBypassBaseUrl
+  ) {
+    editBaseUrl.value = googleAIStudioBaseUrl
+  }
+})
 
 // Model mapping helpers
 const addModelMapping = () => {
@@ -3726,6 +3779,11 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.compact_model_mapping
         }
+      }
+      if (props.account.platform === 'gemini') {
+        newCredentials.gemini_upstream_profile = geminiUpstreamProfile.value
+      } else {
+        delete newCredentials.gemini_upstream_profile
       }
 
       // Add pool mode if enabled

@@ -117,6 +117,21 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "https://generativelanguage.googleapis.com/v1beta/models", geminiReq.URL.String())
 	require.Equal(t, "gemini-key", geminiReq.Header.Get("x-goog-api-key"))
 
+	_, err = svc.buildGeminiUpstreamModelsRequest(ctx, &Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                 "qiniu-key",
+			"base_url":                "https://api.qnaigc.com/bypass/vertex",
+			"gemini_upstream_profile": "qiniu_vertex_bypass",
+		},
+	})
+	require.Error(t, err)
+	var qiniuSyncErr *UpstreamModelSyncError
+	require.True(t, errors.As(err, &qiniuSyncErr))
+	require.Equal(t, UpstreamModelSyncErrorUnsupported, qiniuSyncErr.Kind)
+	require.Contains(t, qiniuSyncErr.SafeMessage(), "Qiniu Vertex bypass")
+
 	antigravityReq, err := svc.buildAntigravityAPIKeyModelsRequest(ctx, &Account{
 		Platform: PlatformAntigravity,
 		Type:     AccountTypeAPIKey,

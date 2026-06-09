@@ -3827,6 +3827,14 @@ export default {
           'All model requests are forwarded directly to the Gemini API without model restrictions or mappings.',
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
+        upstreamProfile: {
+          label: 'Upstream protocol',
+          googleAIStudio: 'Google AI Studio',
+          qiniuVertexBypass: 'Qiniu Vertex bypass',
+          hint: 'Choose Qiniu only for qnaigc.com Vertex-compatible API-key upstreams.',
+          qiniuBaseUrlHint: 'Use https://api.qnaigc.com/bypass/vertex for Qiniu Vertex bypass.',
+          qiniuApiKeyHint: 'Your Qiniu API key; sub2api sends it as Authorization: Bearer.'
+        },
         tier: {
           label: 'Account Tier',
           hint: 'Tip: The system will try to auto-detect the tier first; if auto-detection is unavailable or fails, your selected tier is used as a fallback (simulated quota).',
