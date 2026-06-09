@@ -1010,19 +1010,21 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+        <div v-if="form.platform === 'gemini'">
+          <label class="input-label">{{ t('admin.accounts.gemini.upstreamProfile.label') }}</label>
+          <select v-model="geminiUpstreamProfile" class="input">
+            <option value="google_aistudio">{{ t('admin.accounts.gemini.upstreamProfile.googleAIStudio') }}</option>
+            <option value="qiniu_vertex_bypass">{{ t('admin.accounts.gemini.upstreamProfile.qiniuVertexBypass') }}</option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.gemini.upstreamProfile.hint') }}</p>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="apiKeyBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
-            "
+            :placeholder="apiKeyBaseUrlPlaceholder"
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
@@ -1033,13 +1035,7 @@
             type="password"
             required
             class="input font-mono"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'sk-proj-...'
-                : form.platform === 'gemini'
-                  ? 'AIza...'
-                  : 'sk-ant-...'
-            "
+            :placeholder="apiKeyPlaceholder"
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
         </div>
@@ -3279,14 +3275,43 @@ const oauthStepTitle = computed(() => {
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
+  if (form.platform === 'gemini' && geminiUpstreamProfile.value === 'qiniu_vertex_bypass') {
+    return t('admin.accounts.gemini.upstreamProfile.qiniuBaseUrlHint')
+  }
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
+  if (form.platform === 'gemini' && geminiUpstreamProfile.value === 'qiniu_vertex_bypass') {
+    return t('admin.accounts.gemini.upstreamProfile.qiniuApiKeyHint')
+  }
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   return t('admin.accounts.apiKeyHint')
+})
+
+type GeminiUpstreamProfile = 'google_aistudio' | 'qiniu_vertex_bypass'
+
+const googleAIStudioBaseUrl = 'https://generativelanguage.googleapis.com'
+const qiniuVertexBypassBaseUrl = 'https://api.qnaigc.com/bypass/vertex'
+
+const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (form.platform === 'openai') return 'https://api.openai.com'
+  if (form.platform === 'gemini') {
+    return geminiUpstreamProfile.value === 'qiniu_vertex_bypass'
+      ? qiniuVertexBypassBaseUrl
+      : googleAIStudioBaseUrl
+  }
+  return 'https://api.anthropic.com'
+})
+
+const apiKeyPlaceholder = computed(() => {
+  if (form.platform === 'openai') return 'sk-proj-...'
+  if (form.platform === 'gemini') {
+    return geminiUpstreamProfile.value === 'qiniu_vertex_bypass' ? 'qiniu-api-key' : 'AIza...'
+  }
+  return 'sk-ant-...'
 })
 
 interface Props {
@@ -3361,15 +3386,26 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const geminiUpstreamProfile = ref<GeminiUpstreamProfile>('google_aistudio')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
-  return {
+  const credentials: {
+    platform: string
+    type: string
+    base_url?: string
+    api_key: string
+    gemini_upstream_profile?: GeminiUpstreamProfile
+  } = {
     platform: form.platform,
     type: form.type,
     base_url: apiKeyBaseUrl.value || undefined,
     api_key: apiKeyValue.value
   }
+  if (form.platform === 'gemini') {
+    credentials.gemini_upstream_profile = geminiUpstreamProfile.value
+  }
+  return credentials
 })
 
 const editQuotaLimit = ref<number | null>(null)
@@ -3797,8 +3833,11 @@ watch(
       (newPlatform === 'openai')
         ? 'https://api.openai.com'
         : newPlatform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
+          ? (geminiUpstreamProfile.value === 'qiniu_vertex_bypass' ? qiniuVertexBypassBaseUrl : googleAIStudioBaseUrl)
           : 'https://api.anthropic.com'
+    if (newPlatform !== 'gemini') {
+      geminiUpstreamProfile.value = 'google_aistudio'
+    }
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -3859,6 +3898,24 @@ watch(
     antigravityOAuth.resetState()
   }
 )
+
+watch(geminiUpstreamProfile, (profile, previousProfile) => {
+  if (form.platform !== 'gemini') return
+  if (
+    profile === 'qiniu_vertex_bypass' &&
+    (!apiKeyBaseUrl.value.trim() || apiKeyBaseUrl.value.trim() === googleAIStudioBaseUrl)
+  ) {
+    apiKeyBaseUrl.value = qiniuVertexBypassBaseUrl
+    return
+  }
+  if (
+    profile === 'google_aistudio' &&
+    previousProfile === 'qiniu_vertex_bypass' &&
+    apiKeyBaseUrl.value.trim() === qiniuVertexBypassBaseUrl
+  ) {
+    apiKeyBaseUrl.value = googleAIStudioBaseUrl
+  }
+})
 
 // Gemini AI Studio OAuth availability (requires operator-configured OAuth client)
 watch(
@@ -4213,6 +4270,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  geminiUpstreamProfile.value = 'google_aistudio'
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4616,7 +4674,7 @@ const handleSubmit = async () => {
     form.platform === 'openai'
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
-        ? 'https://generativelanguage.googleapis.com'
+        ? (geminiUpstreamProfile.value === 'qiniu_vertex_bypass' ? qiniuVertexBypassBaseUrl : googleAIStudioBaseUrl)
         : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
@@ -4626,6 +4684,7 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
+    credentials.gemini_upstream_profile = geminiUpstreamProfile.value
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）

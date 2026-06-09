@@ -498,7 +498,7 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 // 1) API key accounts (AI Studio)
 // 2) OAuth accounts without project_id (AI Studio OAuth)
 // 3) OAuth accounts explicitly marked as ai_studio
-// 4) Any remaining Gemini accounts (fallback)
+// 4) Any remaining AI Studio-compatible Gemini OAuth accounts
 func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
 	if err != nil {
@@ -512,12 +512,12 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 		if a == nil {
 			return 999
 		}
+		if !a.SupportsGeminiAIStudioGETEndpoints() {
+			return 999
+		}
 		switch a.Type {
 		case AccountTypeAPIKey:
-			if strings.TrimSpace(a.GetCredential("api_key")) != "" {
-				return 0
-			}
-			return 9
+			return 0
 		case AccountTypeOAuth:
 			if strings.TrimSpace(a.GetCredential("project_id")) == "" {
 				return 1
@@ -539,12 +539,16 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 	var selected *Account
 	for i := range accounts {
 		acc := &accounts[i]
+		accRank := rank(acc)
+		if accRank >= 999 {
+			continue
+		}
 		if selected == nil {
 			selected = acc
 			continue
 		}
 
-		r1, r2 := rank(acc), rank(selected)
+		r1, r2 := accRank, rank(selected)
 		if r1 < r2 {
 			selected = acc
 			continue
@@ -622,11 +626,6 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	switch account.Type {
 	case AccountTypeAPIKey:
 		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			apiKey := account.GetCredential("api_key")
-			if strings.TrimSpace(apiKey) == "" {
-				return nil, "", errors.New("gemini api_key not configured")
-			}
-
 			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
@@ -637,19 +636,13 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if req.Stream {
 				action = "streamGenerateContent"
 			}
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
-			if req.Stream {
-				fullURL += "?alt=sse"
-			}
-
-			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			return upstreamReq, "x-request-id", nil
+			return buildGeminiAPIKeyUpstreamRequest(ctx, account, normalizedBaseURL, geminiAPIKeyUpstreamRequestOptions{
+				Model:    mappedModel,
+				Action:   action,
+				Stream:   req.Stream,
+				Body:     geminiReq,
+				BodyMode: geminiAPIKeyBodyNormalizeAIStudio,
+			})
 		}
 		requestIDHeader = "x-request-id"
 
@@ -1160,29 +1153,18 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	switch account.Type {
 	case AccountTypeAPIKey:
 		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			apiKey := account.GetCredential("api_key")
-			if strings.TrimSpace(apiKey) == "" {
-				return nil, "", errors.New("gemini api_key not configured")
-			}
-
 			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
 				return nil, "", err
 			}
-
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, upstreamAction)
-			if useUpstreamStream {
-				fullURL += "?alt=sse"
-			}
-
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			return upstreamReq, "x-request-id", nil
+			return buildGeminiAPIKeyUpstreamRequest(ctx, account, normalizedBaseURL, geminiAPIKeyUpstreamRequestOptions{
+				Model:    mappedModel,
+				Action:   upstreamAction,
+				Stream:   useUpstreamStream,
+				Body:     body,
+				BodyMode: geminiAPIKeyBodyNative,
+			})
 		}
 		requestIDHeader = "x-request-id"
 
@@ -2631,6 +2613,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, account *Account, path string) (*UpstreamHTTPResult, error) {
 	if account == nil {
 		return nil, errors.New("account is nil")
+	}
+	if !account.SupportsGeminiAIStudioGETEndpoints() {
+		return nil, fmt.Errorf("gemini account %d does not support AI Studio GET endpoints", account.ID)
 	}
 	path = strings.TrimSpace(path)
 	if path == "" || !strings.HasPrefix(path, "/") {

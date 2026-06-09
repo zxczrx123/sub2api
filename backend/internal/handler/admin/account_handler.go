@@ -2135,23 +2135,29 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 // POST /api/v1/admin/accounts/models/sync-upstream-preview
 func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	var req struct {
-		Platform string `json:"platform" binding:"required"`
-		Type     string `json:"type" binding:"required"`
-		BaseURL  string `json:"base_url"`
-		APIKey   string `json:"api_key" binding:"required"`
+		Platform              string `json:"platform" binding:"required"`
+		Type                  string `json:"type" binding:"required"`
+		BaseURL               string `json:"base_url"`
+		APIKey                string `json:"api_key" binding:"required"`
+		GeminiUpstreamProfile string `json:"gemini_upstream_profile"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
+	credentials := map[string]any{
+		"api_key":  req.APIKey,
+		"base_url": req.BaseURL,
+	}
+	if strings.TrimSpace(req.GeminiUpstreamProfile) != "" {
+		credentials[service.GeminiUpstreamProfileCredentialKey] = req.GeminiUpstreamProfile
+	}
+
 	tempAccount := &service.Account{
-		Platform: req.Platform,
-		Type:     req.Type,
-		Credentials: map[string]any{
-			"api_key":  req.APIKey,
-			"base_url": req.BaseURL,
-		},
+		Platform:    req.Platform,
+		Type:        req.Type,
+		Credentials: credentials,
 	}
 
 	if h.accountTestService == nil {

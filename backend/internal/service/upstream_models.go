@@ -277,6 +277,12 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 }
 
 func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Type == AccountTypeAPIKey && account.IsQiniuVertexBypassGemini() {
+		return nil, newUpstreamModelSyncUnsupportedError(
+			"Qiniu Vertex bypass Gemini accounts do not support upstream model sync yet; configure supported models manually", nil,
+		)
+	}
+
 	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = geminicli.AIStudioBaseURL

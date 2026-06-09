@@ -294,11 +294,6 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return func(ctx context.Context) (*http.Request, string, error) {
-			apiKey := account.GetCredential("api_key")
-			if strings.TrimSpace(apiKey) == "" {
-				return nil, "", errors.New("gemini api_key not configured")
-			}
-
 			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
@@ -309,19 +304,13 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
-			if clientStream {
-				fullURL += "?alt=sse"
-			}
-
-			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			return upstreamReq, "x-request-id", nil
+			return buildGeminiAPIKeyUpstreamRequest(ctx, account, normalizedBaseURL, geminiAPIKeyUpstreamRequestOptions{
+				Model:    mappedModel,
+				Action:   action,
+				Stream:   clientStream,
+				Body:     geminiReq,
+				BodyMode: geminiAPIKeyBodyNormalizeAIStudio,
+			})
 		}, "x-request-id"
 
 	case AccountTypeOAuth:

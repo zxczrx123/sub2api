@@ -3955,6 +3955,14 @@ export default {
         modelPassthroughDesc: '所有模型请求将直接转发至 Gemini API，不进行模型限制或映射。',
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',
+        upstreamProfile: {
+          label: '上游协议',
+          googleAIStudio: 'Google AI Studio',
+          qiniuVertexBypass: '七牛 Vertex bypass',
+          hint: '仅七牛 qnaigc.com 的 Vertex 兼容 API Key 上游选择七牛。',
+          qiniuBaseUrlHint: '七牛 Vertex bypass 使用 https://api.qnaigc.com/bypass/vertex。',
+          qiniuApiKeyHint: '您的七牛 API Key；sub2api 会以 Authorization: Bearer 发送。'
+        },
         tier: {
           label: '账号等级',
           hint: '提示：系统会优先尝试自动识别账号等级；若自动识别不可用或失败，则使用你选择的等级作为回退（本地模拟配额）。',
